@@ -1,5 +1,9 @@
 const mongoose = require('mongoose');
+const slugify = require('slugify');
 
+/* =====================================================
+   📌 SUBDOCUMENT SCHEMA: MEMBER
+===================================================== */
 const memberSchema = new mongoose.Schema(
   {
     user: {
@@ -11,18 +15,22 @@ const memberSchema = new mongoose.Schema(
       type: String,
       enum: {
         values: ['owner', 'admin', 'member'],
-        message: 'Role must be either: OWNER, ADMIN, or MEMBER',
+        message: 'Role must be either: owner, admin, or member',
       },
       default: 'member',
+      lowercase: true, // Converts incoming strings to lowercase automatically
     },
     joinedAt: {
       type: Date,
       default: Date.now,
     },
   },
-  { _id: false } // Avoid generating separate _id for embedded member subdocuments
+  { _id: false } // Prevent generating individual _ids for member subdocuments
 );
 
+/* =====================================================
+   📌 MAIN SCHEMA: WORKSPACE
+===================================================== */
 const workspaceSchema = new mongoose.Schema(
   {
     name: {
@@ -51,25 +59,21 @@ const workspaceSchema = new mongoose.Schema(
     members: [memberSchema],
   },
   {
-    timestamps: true, // Automatically manages createdAt and updatedAt
+    timestamps: true,
     toJSON: { virtuals: true },
     toObject: { virtuals: true },
   }
 );
 
 /* =====================================================
-    ⚡ INDEXES FOR PERFORMANCE
+   ⚡ INDEXES FOR PERFORMANCE
 ===================================================== */
 // Enables fast querying of all workspaces belonging to a specific user
 workspaceSchema.index({ 'members.user': 1 });
 
-// Slug index for URL lookups (e.g., /workspaces/my-team-slug)
-workspaceSchema.index({ slug: 1 });
-
 /* =====================================================
-    🔗 VIRTUAL REPLIES / POPULATION
+   🔗 VIRTUAL POPULATION
 ===================================================== */
-// Virtual populate boards associated with this workspace
 workspaceSchema.virtual('boards', {
   ref: 'Board',
   foreignField: 'workspace',
@@ -77,18 +81,19 @@ workspaceSchema.virtual('boards', {
 });
 
 /* =====================================================
-    🛠️ INSTANCE & STATIC METHODS
+   🛠️ INSTANCE METHODS
 ===================================================== */
-
-// Helper to check if a user is a member of this workspace
+// Check if a user is a member of this workspace
 workspaceSchema.methods.isMember = function (userId) {
+  if (!userId) return false;
   return this.members.some(
     (member) => member.user.toString() === userId.toString()
   );
 };
 
-// Helper to check a user's role in the workspace
+// Get user role within the workspace
 workspaceSchema.methods.getUserRole = function (userId) {
+  if (!userId) return null;
   const member = this.members.find(
     (m) => m.user.toString() === userId.toString()
   );
@@ -96,11 +101,18 @@ workspaceSchema.methods.getUserRole = function (userId) {
 };
 
 /* =====================================================
-    🔒 MIDDLEWARE / HOOKS
+   🔒 MIDDLEWARE / HOOKS (Fixed async / next syntax)
 ===================================================== */
 
-// Ensure the workspace owner is automatically added to the members array with 'OWNER' role
-workspaceSchema.pre('save', function (next) {
+// 1. Automatically generate slug before validation runs
+workspaceSchema.pre('validate', function () {
+  if (this.name && !this.slug) {
+    this.slug = slugify(this.name, { lower: true, strict: true });
+  }
+});
+
+// 2. Sync workspace owner into members array on creation
+workspaceSchema.pre('save', function () {
   if (this.isNew) {
     const ownerExists = this.members.some(
       (member) => member.user.toString() === this.owner.toString()
@@ -109,11 +121,10 @@ workspaceSchema.pre('save', function (next) {
     if (!ownerExists) {
       this.members.push({
         user: this.owner,
-        role: 'OWNER',
+        role: 'owner',
       });
     }
   }
-  next();
 });
 
 const Workspace = mongoose.model('Workspace', workspaceSchema);
