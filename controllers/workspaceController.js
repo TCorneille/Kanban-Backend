@@ -5,8 +5,11 @@ const AppError = require('../utils/appError');
 
 // Get all workspaces user belongs to or owns
 exports.getUserWorkspaces = catchAsync(async (req, res, next) => {
+  // Ensure we match using the actual BSON ObjectId/ID string from req.user
+  const userId = req.user._id || req.user.id;
+
   const workspaces = await Workspace.find({
-    $or: [{ owner: req.user.id }, { 'members.user': req.user.id }],
+    $or: [{ owner: userId }, { 'members.user': userId }],
   }).populate('owner', 'name email');
 
   res.status(200).json({
@@ -16,13 +19,14 @@ exports.getUserWorkspaces = catchAsync(async (req, res, next) => {
   });
 });
 
-// Create workspace (owner added automatically via pre('save') hook)
+// Create workspace
 exports.createWorkspace = catchAsync(async (req, res, next) => {
+  const userId = req.user._id || req.user.id;
+
   const newWorkspace = await Workspace.create({
     name: req.body.name,
     description: req.body.description,
-    owner: req.user.id,
-    // Note: members array is handled by the model hook automatically
+    owner: userId,
   });
 
   res.status(201).json({
@@ -31,7 +35,7 @@ exports.createWorkspace = catchAsync(async (req, res, next) => {
   });
 });
 
-// Get workspace by ID with populated owner & member details
+// Get workspace by ID
 exports.getWorkspaceById = catchAsync(async (req, res, next) => {
   const workspace = await Workspace.findById(req.params.workspaceId)
     .populate('owner', 'name email')
@@ -47,7 +51,7 @@ exports.getWorkspaceById = catchAsync(async (req, res, next) => {
   });
 });
 
-// Update workspace details & sync slug if name changes
+// Update workspace
 exports.updateWorkspace = catchAsync(async (req, res, next) => {
   const updateData = { description: req.body.description };
 
@@ -86,14 +90,13 @@ exports.deleteWorkspace = catchAsync(async (req, res, next) => {
   });
 });
 
-// Add new member (with duplicate check)
+// Add member
 exports.addMember = catchAsync(async (req, res, next) => {
   const { userId, role } = req.body;
   const workspace = await Workspace.findById(req.params.workspaceId);
 
   if (!workspace) return next(new AppError('Workspace not found', 404));
 
-  // Check if user is already a member
   if (workspace.isMember(userId)) {
     return next(new AppError('User is already a member of this workspace', 400));
   }
@@ -104,7 +107,7 @@ exports.addMember = catchAsync(async (req, res, next) => {
   res.status(200).json({ status: 'success', data: { workspace } });
 });
 
-// Update role of an existing member
+// Update member role
 exports.updateMemberRole = catchAsync(async (req, res, next) => {
   const { workspaceId, userId } = req.params;
   const { role } = req.body;
@@ -122,7 +125,7 @@ exports.updateMemberRole = catchAsync(async (req, res, next) => {
   res.status(200).json({ status: 'success', data: { workspace } });
 });
 
-// Remove a member from workspace
+// Remove member
 exports.removeMember = catchAsync(async (req, res, next) => {
   const workspace = await Workspace.findByIdAndUpdate(
     req.params.workspaceId,
