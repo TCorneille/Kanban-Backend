@@ -62,6 +62,7 @@ app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/workspaces', workspaceRoutes);
 app.use('/api/v1/boards', boardRoutes);
 app.use('/api/v1/tasks', taskRoutes);
+app.use('/api/v1/workspaces/:workspaceId/boards', boardRoutes);
 // app.use('/api/v1/columns', columnRoutes);
 /* =====================================================
     4. ERROR HANDLING

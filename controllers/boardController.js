@@ -3,8 +3,15 @@ const Task = require('../models/taskModel');
 const catchAsync = require('../utils/catchAsync');
 const AppError = require('../utils/appError');
 
+// Get all boards for a specific workspace
 exports.getBoards = catchAsync(async (req, res, next) => {
-  const boards = await Board.find({ workspace: req.params.workspaceId });
+  const workspaceId = req.params.workspaceId || req.query.workspace;
+
+  if (!workspaceId) {
+    return next(new AppError('Please provide a workspace ID', 400));
+  }
+
+  const boards = await Board.find({ workspace: workspaceId });
 
   res.status(200).json({
     status: 'success',
@@ -13,8 +20,13 @@ exports.getBoards = catchAsync(async (req, res, next) => {
   });
 });
 
+// Create board
 exports.createBoard = catchAsync(async (req, res, next) => {
   const workspaceId = req.params.workspaceId || req.body.workspace;
+
+  if (!workspaceId) {
+    return next(new AppError('A board must belong to a workspace', 400));
+  }
 
   const newBoard = await Board.create({
     title: req.body.title,
@@ -32,6 +44,7 @@ exports.createBoard = catchAsync(async (req, res, next) => {
   });
 });
 
+// Get single board by ID along with its tasks
 exports.getBoardById = catchAsync(async (req, res, next) => {
   const board = await Board.findById(req.params.boardId);
   if (!board) return next(new AppError('No board found with that ID', 404));
@@ -44,6 +57,7 @@ exports.getBoardById = catchAsync(async (req, res, next) => {
   });
 });
 
+// Update board
 exports.updateBoard = catchAsync(async (req, res, next) => {
   const board = await Board.findByIdAndUpdate(req.params.boardId, req.body, {
     new: true,
@@ -58,11 +72,14 @@ exports.updateBoard = catchAsync(async (req, res, next) => {
   });
 });
 
+// Delete board and associated tasks safely
 exports.deleteBoard = catchAsync(async (req, res, next) => {
-  const board = await Board.findByIdAndDelete(req.params.boardId);
+  const board = await Board.findById(req.params.boardId);
   if (!board) return next(new AppError('No board found with that ID', 404));
 
+  // Clean up associated tasks before removing the board
   await Task.deleteMany({ board: req.params.boardId });
+  await board.deleteOne();
 
   res.status(204).json({
     status: 'success',

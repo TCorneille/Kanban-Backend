@@ -14,6 +14,7 @@ router.use(protect);
 
 router
   .route('/')
+  .get(taskController.getTasks) // <-- ADD THIS to fetch tasks for the board
   .post(taskController.createTask);
 
 router
