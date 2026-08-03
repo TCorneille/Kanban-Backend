@@ -1,40 +1,26 @@
+// models/taskModel.js
 const mongoose = require('mongoose');
 
-const taskSchema = new mongoose.Schema(
-  {
-    title: {
-      type: String,
-      required: [true, 'A task must have a title'],
-      trim: true,
-    },
-    description: {
-      type: String,
-      trim: true,
-    },
-    board: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Board',
-      required: [true, 'A task must belong to a board'],
-    },
-    columnId: {
-      type: mongoose.Schema.Types.ObjectId,
-      required: [true, 'A task must belong to a specific column'],
-    },
-    position: {
-      type: Number,
-      default: 0,
-    },
-    assignedTo: [
-      {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: 'User',
-      },
-    ],
+const taskSchema = new mongoose.Schema({
+  title: {
+    type: String,
+    required: [true, 'A task must have a title'],
   },
-  {
-    timestamps: true,
-  }
-);
+  boardId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Board',
+    required: true,
+  },
+  // 💡 Change this from ObjectId to String
+  columnId: {
+    type: String,
+    required: true,
+    enum: ['todo', 'in_progress', 'done'], // optional: enforce valid columns
+  },
+  position: {
+    type: Number,
+    default: 0,
+  },
+});
 
-const Task = mongoose.model('Task', taskSchema);
-module.exports = Task;
+module.exports = mongoose.model('Task', taskSchema);
