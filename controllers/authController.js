@@ -3,7 +3,6 @@ const bcrypt = require("bcryptjs");
 const crypto = require("crypto");
 
 const User = require("../models/userModel");
-
 const sendEmail = require("../utils/email");
 const catchAsync = require("../utils/catchAsync");
 const AppError = require("../utils/appError");
@@ -11,20 +10,22 @@ const AppError = require("../utils/appError");
 // ================= TOKEN HELPERS =================
 
 const signToken = (id) => {
+  const secret = process.env.JWT_SECRET || "fallback_secret_development_only";
+  const expiresIn = process.env.JWT_EXPIRES_IN || "30d";
+
   if (!process.env.JWT_SECRET) {
     console.error("❌ ERROR: JWT_SECRET environment variable is missing on your server settings!");
   }
-  
-  return jwt.sign({ id }, process.env.JWT_SECRET || "fallback_secret_development_only", {
-    expiresIn: process.env.JWT_EXPIRES_IN || "30d",
-  });
+
+  return jwt.sign({ id }, secret, { expiresIn });
 };
 
 const createSendToken = (user, statusCode, res) => {
   const token = signToken(user._id);
 
   const jwtExpiresIn = process.env.JWT_EXPIRES_IN || "30d";
-  const days = parseInt(jwtExpiresIn.replace(/[^0-9]/g, ""), 10) || 30;
+  const daysMatch = jwtExpiresIn.match(/\d+/);
+  const days = daysMatch ? parseInt(daysMatch[0], 10) : 30;
 
   const cookieOptions = {
     expires: new Date(Date.now() + days * 24 * 60 * 60 * 1000),
@@ -38,14 +39,16 @@ const createSendToken = (user, statusCode, res) => {
 
   res.cookie("jwt", token, cookieOptions);
 
-  user.password = undefined;
-  user.confirmPassword = undefined;
+  // Convert Mongoose doc to plain object if needed, then hide credentials
+  const userObj = user.toObject ? user.toObject() : { ...user };
+  delete userObj.password;
+  delete userObj.confirmPassword;
 
   res.status(statusCode).json({
     status: "success",
     token,
     data: {
-      user,
+      user: userObj,
     },
   });
 };
@@ -77,14 +80,17 @@ exports.signup = catchAsync(async (req, res, next) => {
     </div>
   `;
 
-  sendEmail({
-    email: newUser.email,
-    subject: "Welcome to Project Flow! Account Created Successfully",
-    message: welcomeMessage,
-    html: welcomeHtml,
-  }).catch((err) => {
+  // Safe async execution: Email failures won't trigger a 500 server crash
+  try {
+    await sendEmail({
+      email: newUser.email,
+      subject: "Welcome to Project Flow! Account Created Successfully",
+      message: welcomeMessage,
+      html: welcomeHtml,
+    });
+  } catch (err) {
     console.error("BACKGROUND EMAIL ERROR: Email setup failed or environment credentials are missing.", err.message);
-  });
+  }
 
   createSendToken(newUser, 201, res);
 });
@@ -144,7 +150,8 @@ exports.protect = catchAsync(async (req, res, next) => {
 
   if (!token) return next(new AppError("You are not logged in!", 401));
 
-  const decoded = jwt.verify(token, process.env.JWT_SECRET);
+  const secret = process.env.JWT_SECRET || "fallback_secret_development_only";
+  const decoded = jwt.verify(token, secret);
 
   const currentUser = await User.findById(decoded.id);
 

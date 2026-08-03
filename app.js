@@ -64,11 +64,12 @@ app.use('/api/v1/boards', boardRoutes);
 app.use('/api/v1/tasks', taskRoutes);
 app.use('/api/v1/workspaces/:workspaceId/boards', boardRoutes);
 // app.use('/api/v1/columns', columnRoutes);
+
 /* =====================================================
     4. ERROR HANDLING
 ===================================================== */
 
-// Catch-all for undefined routes (Fixed: replaced '*' string with regex /.*/)
+// Catch-all for undefined routes
 app.all(/.*/, (req, res, next) => {
   const err = new Error(`Cannot find ${req.originalUrl} on this server!`);
   err.statusCode = 404;
@@ -78,28 +79,66 @@ app.all(/.*/, (req, res, next) => {
 
 // Global Error Middleware
 app.use((err, req, res, next) => {
-  // 1. Log the error for your own debugging
-  console.error("GLOBAL ERROR:", err);
+  let error = { ...err };
+  error.message = err.message;
+  error.name = err.name;
+  error.code = err.code;
 
-  // 2. Ensure statusCode is a valid NUMBER.
-  // We check err.statusCode first, then err.status. If neither is a number, default to 500.
-  let statusCode = 500;
-  if (Number.isInteger(err.statusCode)) {
-    statusCode = err.statusCode;
-  } else if (Number.isInteger(err.status)) {
-    statusCode = err.status;
+  // 1. Log the original error for backend debugging
+  console.error("GLOBAL ERROR LOG:", err);
+
+  // 2. Handle Duplicate MongoDB Field Errors (e.g. Email already exists)
+  if (error.code === 11000) {
+    const value = err.errmsg ? err.errmsg.match(/(["'])(\\?.)*?\1/)[0] : 'field value';
+    error.message = `Duplicate field value: ${value}. Please use another value!`;
+    error.statusCode = 400;
+    error.status = 'fail';
   }
 
-  // 3. Ensure the status message is a STRING (fail or error)
-  const statusMessage = err.status && typeof err.status === 'string' 
-    ? err.status 
+  // 3. Handle Mongoose Validation Errors (e.g. Password missing/mismatch)
+  if (error.name === 'ValidationError') {
+    const errors = Object.values(err.errors).map(el => el.message);
+    error.message = `Invalid input data. ${errors.join('. ')}`;
+    error.statusCode = 400;
+    error.status = 'fail';
+  }
+
+  // 4. Handle Invalid Database Object IDs (CastError)
+  if (error.name === 'CastError') {
+    error.message = `Invalid ${err.path}: ${err.value}.`;
+    error.statusCode = 400;
+    error.status = 'fail';
+  }
+
+  // 5. Handle JWT Errors
+  if (error.name === 'JsonWebTokenError') {
+    error.message = 'Invalid token. Please log in again!';
+    error.statusCode = 401;
+    error.status = 'fail';
+  }
+
+  if (error.name === 'TokenExpiredError') {
+    error.message = 'Your token has expired! Please log in again.';
+    error.statusCode = 401;
+    error.status = 'fail';
+  }
+
+  // Ensure statusCode and status are valid formats
+  let statusCode = 500;
+  if (Number.isInteger(error.statusCode)) {
+    statusCode = error.statusCode;
+  } else if (Number.isInteger(err.statusCode)) {
+    statusCode = err.statusCode;
+  }
+
+  const statusMessage = error.status && typeof error.status === 'string' 
+    ? error.status 
     : (statusCode >= 400 && statusCode < 500 ? 'fail' : 'error');
 
   res.status(statusCode).json({
     status: statusMessage,
     success: false,
-    message: err.message || "Internal Server Error",
-    // Only reveal stack trace if you are in a local/dev environment
+    message: error.message || "Internal Server Error",
     stack: process.env.NODE_ENV === 'development' ? err.stack : undefined
   });
 });
