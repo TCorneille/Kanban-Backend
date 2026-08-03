@@ -4,13 +4,14 @@ const AppError = require('../utils/appError');
 
 // Get all tasks for a board
 exports.getTasks = catchAsync(async (req, res, next) => {
-  const boardId = req.params.boardId || req.query.board;
+  const boardId = req.params.boardId || req.query.boardId || req.query.board;
 
   if (!boardId) {
     return next(new AppError('Please provide a board ID', 400));
   }
 
-  const tasks = await Task.find({ board: boardId }).sort('position');
+  // 💡 Fixed: Filter using boardId instead of board
+  const tasks = await Task.find({ boardId }).sort('position');
 
   res.status(200).json({
     status: 'success',
@@ -21,7 +22,7 @@ exports.getTasks = catchAsync(async (req, res, next) => {
 
 // Create task with automatic position calculation
 exports.createTask = catchAsync(async (req, res, next) => {
-  const boardId = req.params.boardId || req.body.board;
+  const boardId = req.params.boardId || req.body.boardId || req.body.board;
 
   if (!boardId) {
     return next(new AppError('A task must belong to a board', 400));
@@ -29,15 +30,16 @@ exports.createTask = catchAsync(async (req, res, next) => {
 
   // Calculate highest position in target column
   const taskCount = await Task.countDocuments({
-    board: boardId,
+    boardId, // 💡 Fixed
     columnId: req.body.columnId,
   });
 
   const newTask = await Task.create({
     title: req.body.title,
     description: req.body.description,
-    board: boardId,
+    boardId, // 💡 Fixed: mapped to boardId
     columnId: req.body.columnId,
+    priority: req.body.priority || 'medium', // 💡 Fixed: saved priority from FE
     position: req.body.position ?? taskCount,
     assignedTo: req.body.assignedTo,
     dueDate: req.body.dueDate,
@@ -93,7 +95,7 @@ exports.moveTask = catchAsync(async (req, res, next) => {
   // Shift existing tasks at or after target position in target column
   await Task.updateMany(
     {
-      board: currentTask.board,
+      boardId: currentTask.boardId, // 💡 Fixed
       columnId: targetColumn,
       position: { $gte: targetPosition },
       _id: { $ne: taskId },
@@ -119,7 +121,7 @@ exports.deleteTask = catchAsync(async (req, res, next) => {
   // Shift remaining tasks down by 1 in column
   await Task.updateMany(
     {
-      board: task.board,
+      boardId: task.boardId, // 💡 Fixed
       columnId: task.columnId,
       position: { $gt: task.position },
     },
