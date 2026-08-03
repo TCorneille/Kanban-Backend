@@ -5,12 +5,16 @@ const AppError = require('../utils/appError');
 
 // Get all workspaces user belongs to or owns
 exports.getUserWorkspaces = catchAsync(async (req, res, next) => {
-  // Ensure we match using the actual BSON ObjectId/ID string from req.user
   const userId = req.user._id || req.user.id;
+  
+  // 🔍 Check what backend receives from JWT
+  console.log('Backend querying workspaces for User ID:', userId);
 
   const workspaces = await Workspace.find({
     $or: [{ owner: userId }, { 'members.user': userId }],
   }).populate('owner', 'name email');
+
+  console.log('Workspaces found in DB:', workspaces);
 
   res.status(200).json({
     status: 'success',
