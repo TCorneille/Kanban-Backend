@@ -1,20 +1,18 @@
 const slugify = require('slugify');
 const Workspace = require('../models/workspaceModel');
+const User = require('../models/userModel');
 const catchAsync = require('../utils/catchAsync');
 const AppError = require('../utils/appError');
 
 // Get all workspaces user belongs to or owns
 exports.getUserWorkspaces = catchAsync(async (req, res, next) => {
   const userId = req.user._id || req.user.id;
-  
-  // 🔍 Check what backend receives from JWT
-  console.log('Backend querying workspaces for User ID:', userId);
 
   const workspaces = await Workspace.find({
     $or: [{ owner: userId }, { 'members.user': userId }],
-  }).populate('owner', 'name email');
-
-  console.log('Workspaces found in DB:', workspaces);
+  })
+    .populate('owner', 'name email')
+    .populate('members.user', 'name email');
 
   res.status(200).json({
     status: 'success',
@@ -31,6 +29,7 @@ exports.createWorkspace = catchAsync(async (req, res, next) => {
     name: req.body.name,
     description: req.body.description,
     owner: userId,
+    members: [{ user: userId, role: 'owner' }],
   });
 
   res.status(201).json({
@@ -94,21 +93,47 @@ exports.deleteWorkspace = catchAsync(async (req, res, next) => {
   });
 });
 
-// Add member
+// Add member (Supports receiving either `email` or `userId` in req.body)
 exports.addMember = catchAsync(async (req, res, next) => {
-  const { userId, role } = req.body;
-  const workspace = await Workspace.findById(req.params.workspaceId);
+  const { email, userId: providedUserId, role } = req.body;
+  let targetUserId = providedUserId;
 
+  // 1. Resolve email to user ID if necessary
+  if (!targetUserId && email) {
+    const user = await User.findOne({ email: email.toLowerCase().trim() });
+    if (!user) {
+      return next(new AppError('No user found with that email address', 404));
+    }
+    targetUserId = user._id;
+  }
+
+  if (!targetUserId) {
+    return next(new AppError('Please provide either a userId or email', 400));
+  }
+
+  // 2. Fetch workspace
+  const workspace = await Workspace.findById(req.params.workspaceId);
   if (!workspace) return next(new AppError('Workspace not found', 404));
 
-  if (workspace.isMember(userId)) {
+  // 3. Safe membership check (handles ObjectIds and string formats smoothly)
+  const isAlreadyMember = workspace.members.some((member) => {
+    const memberId = member.user?._id ? member.user._id.toString() : member.user.toString();
+    return memberId === targetUserId.toString();
+  });
+
+  if (isAlreadyMember) {
     return next(new AppError('User is already a member of this workspace', 400));
   }
 
-  workspace.members.push({ user: userId, role: role || 'member' });
+  // 4. Push, save, and safely populate
+  workspace.members.push({ user: targetUserId, role: role || 'member' });
   await workspace.save();
 
-  res.status(200).json({ status: 'success', data: { workspace } });
+  const updatedWorkspace = await Workspace.findById(workspace._id)
+    .populate('owner', 'name email')
+    .populate('members.user', 'name email');
+
+  res.status(200).json({ status: 'success', data: { workspace: updatedWorkspace } });
 });
 
 // Update member role
@@ -120,7 +145,7 @@ exports.updateMemberRole = catchAsync(async (req, res, next) => {
     { _id: workspaceId, 'members.user': userId },
     { $set: { 'members.$.role': role } },
     { new: true, runValidators: true }
-  );
+  ).populate('members.user', 'name email');
 
   if (!workspace) {
     return next(new AppError('Workspace or member not found', 404));
@@ -135,7 +160,7 @@ exports.removeMember = catchAsync(async (req, res, next) => {
     req.params.workspaceId,
     { $pull: { members: { user: req.params.userId } } },
     { new: true }
-  );
+  ).populate('members.user', 'name email');
 
   if (!workspace) {
     return next(new AppError('Workspace not found', 404));
