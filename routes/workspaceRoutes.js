@@ -9,6 +9,12 @@ const router = express.Router();
 router.use(protect);
 
 /* =====================================================
+    📊 DASHBOARD STATS ROUTE
+    MUST be defined BEFORE parameterized routes (/:workspaceId)
+===================================================== */
+router.get('/stats', workspaceController.getDashboardStats);
+
+/* =====================================================
     🔀 NESTED ROUTES MOUNTING
     Redirects /api/workspaces/:workspaceId/boards to boardRouter
 ===================================================== */
@@ -21,7 +27,7 @@ router.use('/:workspaceId/boards', boardRouter);
 router
   .route('/')
   .get(workspaceController.getUserWorkspaces) // Fetch all workspaces for the logged-in user
-  .post(workspaceController.createWorkspace);  // Create a new workspace
+  .post(workspaceController.createWorkspace);
 
 router
   .route('/:workspaceId')
