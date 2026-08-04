@@ -3,6 +3,8 @@ const Workspace = require('../models/workspaceModel');
 const User = require('../models/userModel');
 const catchAsync = require('../utils/catchAsync');
 const AppError = require('../utils/appError');
+const Board = require('../models/boardModel');
+const Task = require('../models/taskModel');
 
 // Get all workspaces user belongs to or owns
 exports.getUserWorkspaces = catchAsync(async (req, res, next) => {
@@ -167,4 +169,57 @@ exports.removeMember = catchAsync(async (req, res, next) => {
   }
 
   res.status(200).json({ status: 'success', data: { workspace } });
+});
+exports.getDashboardStats = catchAsync(async (req, res, next) => {
+  const userId = req.user._id || req.user.id;
+
+  // 1. Get all workspace IDs the logged-in user belongs to or owns
+  const userWorkspaces = await Workspace.find({
+    $or: [{ owner: userId }, { 'members.user': userId }],
+  }).select('_id');
+
+  const workspaceIds = userWorkspaces.map((w) => w._id);
+
+  // 2. Fetch all boards linked to these workspaces
+  const userBoards = await Board.find({
+    workspaceId: { $in: workspaceIds }, // Adjust field name if your Board model uses 'workspace' or 'workspaceId'
+  }).select('_id');
+
+  const boardIds = userBoards.map((b) => b._id);
+
+  // 3. Define column IDs that count as "completed" vs "open"
+  const COMPLETED_COLUMNS = ['done', 'completed'];
+
+  // 4. Run parallel queries for optimal performance
+  const [openTasks, completedTasks, overdueTasks] = await Promise.all([
+    // Open tasks: Belongs to user's boards AND NOT in a completed column
+    Task.countDocuments({
+      boardId: { $in: boardIds },
+      columnId: { $nin: COMPLETED_COLUMNS },
+    }),
+
+    // Completed tasks: Belongs to user's boards AND in a completed column
+    Task.countDocuments({
+      boardId: { $in: boardIds },
+      columnId: { $in: COMPLETED_COLUMNS },
+    }),
+
+    // Overdue tasks: Due date has passed AND NOT in a completed column
+    Task.countDocuments({
+      boardId: { $in: boardIds },
+      columnId: { $nin: COMPLETED_COLUMNS },
+      dueDate: { $lt: new Date() },
+    }),
+  ]);
+
+  // 5. Send response payload expected by frontend
+  res.status(200).json({
+    status: 'success',
+    data: {
+      workspaces: workspaceIds.length,
+      openTasks,
+      completedTasks,
+      overdueTasks,
+    },
+  });
 });
