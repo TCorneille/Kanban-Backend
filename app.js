@@ -8,6 +8,7 @@ const authRoutes = require('./routes/authRoutes');
 const workspaceRoutes = require('./routes/workspaceRoutes');
 const boardRoutes = require('./routes/boardRoutes');
 const taskRoutes = require('./routes/taskRoutes');
+const activityRoutes=require('./routes/activityRoutes')
 // const columnRoutes = require('./routes/columnRoutes');
 
 const app = express();
@@ -63,6 +64,7 @@ app.use('/api/v1/workspaces', workspaceRoutes);
 app.use('/api/v1/boards', boardRoutes);
 app.use('/api/v1/tasks', taskRoutes);
 app.use('/api/v1/workspaces/:workspaceId/boards', boardRoutes);
+app.use('/api/v1/activities', activityRoutes);
 // app.use('/api/v1/columns', columnRoutes);
 
 /* =====================================================
