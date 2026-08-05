@@ -173,46 +173,60 @@ exports.removeMember = catchAsync(async (req, res, next) => {
 exports.getDashboardStats = catchAsync(async (req, res, next) => {
   const userId = req.user._id || req.user.id;
 
-  // 1. Get all workspace IDs the logged-in user belongs to or owns
+  // 1. Find all workspaces the user owns or belongs to
   const userWorkspaces = await Workspace.find({
     $or: [{ owner: userId }, { 'members.user': userId }],
   }).select('_id');
 
   const workspaceIds = userWorkspaces.map((w) => w._id);
 
-  // 2. Fetch all boards linked to these workspaces
+  // 2. Find all boards across those workspaces (checking both possible field names)
   const userBoards = await Board.find({
-    workspaceId: { $in: workspaceIds }, // Adjust field name if your Board model uses 'workspace' or 'workspaceId'
+    $or: [
+      { workspaceId: { $in: workspaceIds } },
+      { workspace: { $in: workspaceIds } },
+    ],
   }).select('_id');
 
   const boardIds = userBoards.map((b) => b._id);
 
-  // 3. Define column IDs that count as "completed" vs "open"
-  const COMPLETED_COLUMNS = ['done', 'completed'];
+  // If user has no boards yet, return early with zeros for task metrics
+  if (boardIds.length === 0) {
+    return res.status(200).json({
+      status: 'success',
+      data: {
+        workspaces: workspaceIds.length,
+        openTasks: 0,
+        completedTasks: 0,
+        overdueTasks: 0,
+      },
+    });
+  }
 
-  // 4. Run parallel queries for optimal performance
-  const [openTasks, completedTasks, overdueTasks] = await Promise.all([
-    // Open tasks: Belongs to user's boards AND NOT in a completed column
-    Task.countDocuments({
-      boardId: { $in: boardIds },
-      columnId: { $nin: COMPLETED_COLUMNS },
-    }),
+  // 3. Fetch all tasks associated with the user's boards
+  const allTasks = await Task.find({ boardId: { $in: boardIds } });
 
-    // Completed tasks: Belongs to user's boards AND in a completed column
-    Task.countDocuments({
-      boardId: { $in: boardIds },
-      columnId: { $in: COMPLETED_COLUMNS },
-    }),
+  // 4. Calculate task metrics dynamically
+  const completedPattern = /done|completed|finish/i;
+  const now = new Date();
 
-    // Overdue tasks: Due date has passed AND NOT in a completed column
-    Task.countDocuments({
-      boardId: { $in: boardIds },
-      columnId: { $nin: COMPLETED_COLUMNS },
-      dueDate: { $lt: new Date() },
-    }),
-  ]);
+  let openTasks = 0;
+  let completedTasks = 0;
+  let overdueTasks = 0;
 
-  // 5. Send response payload expected by frontend
+  allTasks.forEach((task) => {
+    const isCompleted = completedPattern.test(task.columnId || '');
+
+    if (isCompleted) {
+      completedTasks++;
+    } else {
+      openTasks++;
+      if (task.dueDate && new Date(task.dueDate) < now) {
+        overdueTasks++;
+      }
+    }
+  });
+
   res.status(200).json({
     status: 'success',
     data: {
