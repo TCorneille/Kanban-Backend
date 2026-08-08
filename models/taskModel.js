@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 const mongoose = require('mongoose');
 
 const taskSchema = new mongoose.Schema(
@@ -14,33 +13,30 @@ const taskSchema = new mongoose.Schema(
       trim: true,
       default: '',
     },
-    status: {
+    boardId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Board',
+      required: [true, 'A task must belong to a board'],
+      index: true,
+    },
+    columnId: {
       type: String,
-      enum: {
-        values: ['todo', 'in-progress', 'review', 'done'],
-        message: 'Status must be todo, in-progress, review, or done',
-      },
-      default: 'todo',
+      required: [true, 'A task must belong to a column'],
+      index: true,
+    },
+    position: {
+      type: Number,
+      default: 0,
     },
     priority: {
       type: String,
       enum: ['low', 'medium', 'high', 'urgent'],
       default: 'medium',
     },
-    board: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Board',
-      required: [true, 'A task must belong to a board'],
-      index: true, // Speeds up queries when searching tasks by board ID
-    },
     assignedTo: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
       default: null,
-    },
-    position: {
-      type: Number,
-      default: 0, // Useful for ordering tasks in a column
     },
     dueDate: {
       type: Date,
@@ -48,11 +44,10 @@ const taskSchema = new mongoose.Schema(
     },
   },
   {
-    timestamps: true, // Automatically adds createdAt and updatedAt fields
+    timestamps: true,
   }
 );
 
-// Direct export as a Mongoose Model
+// ✅ Direct default export
 const Task = mongoose.model('Task', taskSchema);
 module.exports = Task;
-
