@@ -1,47 +1,35 @@
-const Activity = require('../models/activity');
+const Activity = require('../models/Activity');
 
 /**
- * @desc    Get recent activities for the logged-in user
- * @route   GET /api/activities/me
- * @access  Private
+ * @desc    Get activity timeline for a specific workspace
+ * @route   GET /api/workspaces/:workspaceId/activities
+ * @access  Private (Requires workspace membership)
  */
-const getMyActivities = async (req, res) => {
+const getWorkspaceActivities = async (req, res) => {
   try {
-    // Safely check for user ID whether auth middleware attaches req.user.id or req.user._id
-    const userId = req.user?.id || req.user?._id;
+    const { workspaceId } = req.params;
+    const limit = parseInt(req.query.limit, 10) || 15;
 
-    if (!userId) {
-      return res.status(401).json({
-        success: false,
-        message: 'Unauthorized: User missing from request context',
-      });
-    }
-
-    // .lean() retrieves plain JavaScript objects instead of heavy Mongoose documents
-    const activities = await Activity.find({ user: userId })
-      .sort({ createdAt: -1 }) // Newest first
-      .limit(10)               // Last 10 activities
+    const activities = await Activity.find({ workspace: workspaceId })
+      .populate('user', 'name avatar email') // Populate user info for avatar display
+      .populate('board', 'name')
+      .populate('task', 'title')
+      .sort({ createdAt: -1 })
+      .limit(limit)
       .lean();
 
-    // Map _id to id so frontend components receive clean React keys
-    const formattedActivities = activities.map((item) => ({
-      ...item,
-      id: item._id.toString(),
-    }));
-
-    // Standardized JSON response payload
     return res.status(200).json({
       success: true,
-      count: formattedActivities.length,
-      data: formattedActivities,
+      count: activities.length,
+      data: activities,
     });
   } catch (error) {
     return res.status(500).json({
       success: false,
-      message: 'Server Error fetching activities',
+      message: 'Failed to fetch workspace activities',
       error: error.message,
     });
   }
 };
 
-module.exports = { getMyActivities };
+module.exports = { getWorkspaceActivities };
