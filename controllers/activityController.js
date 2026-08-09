@@ -1,4 +1,4 @@
-const Activity = require('../models/activityModel'); // Verify model name
+const Activity = require('../models/Activity');
 
 exports.getMyActivities = async (req, res) => {
   try {
