@@ -116,49 +116,38 @@ exports.updateTask = catchAsync(async (req, res, next) => {
 });
 
 // Move task, shift sibling positions, & log card movement
-exports.moveTask = catchAsync(async (req, res, next) => {
-  const { columnId, position } = req.body;
-  const { taskId } = req.params;
+// Example inside taskController.js (moveTask handler)
+exports.moveTask = async (req, res) => {
+  try {
+    const { taskId } = req.params;
+    const { columnId, sourceColumnName, targetColumnName } = req.body;
+    const userId = req.user?.id || req.user?._id;
 
-  const currentTask = await Task.findById(taskId);
-  if (!currentTask) return next(new AppError('No task found with that ID', 404));
+    const task = await Task.findById(taskId);
+    if (!task) return res.status(404).json({ message: 'Task not found' });
 
-  const targetColumn = columnId || currentTask.columnId;
-  const targetPosition = position ?? currentTask.position;
-  const isColumnChange = currentTask.columnId.toString() !== targetColumn.toString();
+    task.columnId = columnId;
+    await task.save();
 
-  // Shift existing tasks at or after target position in target column
-  await Task.updateMany(
-    {
-      boardId: currentTask.boardId,
-      columnId: targetColumn,
-      position: { $gte: targetPosition },
-      _id: { $ne: taskId },
-    },
-    { $inc: { position: 1 } }
-  );
+    // 💡 Detailed activity message with column context
+    const fromCol = sourceColumnName || 'column';
+    const toCol = targetColumnName || 'new column';
+    const details = `Moved "${task.title}" from ${fromCol} to ${toCol}`;
 
-  currentTask.columnId = targetColumn;
-  currentTask.position = targetPosition;
-  await currentTask.save();
+    // Log the activity
+    await logActivity({
+      userId,
+      actionType: 'TASK_MOVED',
+      details,
+      boardId: task.board,
+      taskId: task._id,
+    });
 
-  // 🚀 AUTOMATIC LOG: Task Moved
-  const logDetails = isColumnChange
-    ? `Moved "${currentTask.title}" to new column`
-    : `Reordered "${currentTask.title}"`;
-
-  logActivity(
-    req.user?._id || req.user?.id,
-    'TASK_MOVED',
-    logDetails,
-    { boardId: currentTask.boardId, taskId: currentTask._id }
-  );
-
-  res.status(200).json({
-    status: 'success',
-    data: { task: currentTask },
-  });
-});
+    return res.status(200).json({ status: 'success', data: { task } });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
 
 // Delete task, adjust surrounding indices, & log deletion
 exports.deleteTask = catchAsync(async (req, res, next) => {
