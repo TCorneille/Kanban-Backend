@@ -1,19 +1,37 @@
 const Activity = require('../models/activity');
 
-/
- * @param {Object} params
- * @param {string} params.userId - Logged-in user's ID (req.user.id or req.user._id)
- * @param {string} params.actionType - 'TASK_CREATED', 'TASK_MOVED', 'TASK_DELETED', 'BOARD_CREATED', etc.
- * @param {string} params.details - Descriptive string (e.g., 'Moved "Fix Auth" to Done')
- * @param {string} [params.workspaceId] - Optional Workspace reference
- * @param {string} [params.boardId] - Optional Board reference
- * @param {string} [params.taskId] - Optional Task reference
+/**
+ * Universally handles both object-style and positional-style activity logging
  */
-const logActivity = async ({ userId, actionType, details, workspaceId, boardId, taskId }) => {
+const logActivity = async (firstArg, secondArg, thirdArg, fourthArg = {}) => {
   try {
-    if (!userId || !actionType || !details) return;
+    let userId, actionType, details, workspaceId, boardId, taskId;
 
-    await Activity.create({
+    // 1. Detect if called with an object: logActivity({ userId, actionType, ... })
+    if (
+      typeof firstArg === 'object' &&
+      firstArg !== null &&
+      !firstArg._bsontype &&
+      firstArg.constructor?.name !== 'ObjectId'
+    ) {
+      ({ userId, actionType, details, workspaceId, boardId, taskId } = firstArg);
+    } else {
+      // 2. Handle positional call: logActivity(userId, actionType, details, { boardId, taskId })
+      userId = firstArg;
+      actionType = secondArg;
+      details = thirdArg;
+      workspaceId = fourthArg.workspaceId;
+      boardId = fourthArg.boardId;
+      taskId = fourthArg.taskId;
+    }
+
+    // Validation guard
+    if (!userId || !actionType || !details) {
+      console.warn('⚠️ [logActivity] Missing required fields:', { userId: !!userId, actionType: !!actionType, details: !!details });
+      return;
+    }
+
+    const activity = await Activity.create({
       user: userId,
       actionType,
       details,
@@ -21,9 +39,10 @@ const logActivity = async ({ userId, actionType, details, workspaceId, boardId, 
       board: boardId || null,
       task: taskId || null,
     });
+
+    console.log('✅ [logActivity] Saved:', activity.actionType, '-', activity.details);
   } catch (error) {
-    // Non-blocking catch to prevent activity errors from breaking main user operations
-    console.error('⚠️ Automatic activity logging failed:', error.message);
+    console.error('❌ [logActivity] Failed to save to MongoDB:', error.message);
   }
 };
 
