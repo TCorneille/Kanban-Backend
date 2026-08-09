@@ -115,37 +115,63 @@ exports.updateTask = catchAsync(async (req, res, next) => {
   });
 });
 
-// Move task, shift sibling positions, & log card movement
-// Example inside taskController.js (moveTask handler)
 exports.moveTask = async (req, res) => {
   try {
     const { taskId } = req.params;
-    const { columnId, sourceColumnName, targetColumnName } = req.body;
+    const { columnId, position } = req.body;
     const userId = req.user?.id || req.user?._id;
 
+    // 1. Fetch current task before moving it
     const task = await Task.findById(taskId);
-    if (!task) return res.status(404).json({ message: 'Task not found' });
+    if (!task) {
+      return res.status(404).json({ success: false, message: 'Task not found' });
+    }
 
+    const oldColumnId = task.columnId;
+
+    // 2. Fetch the board to resolve column titles from subdocuments
+    const board = await Board.findById(task.board);
+
+    let sourceColName = 'a column';
+    let targetColName = 'a column';
+
+    if (board && board.columns) {
+      // Mongoose subdocument helper .id() searches columns by _id
+      const sourceCol = board.columns.id(oldColumnId);
+      if (sourceCol) sourceColName = sourceCol.title;
+
+      const targetCol = board.columns.id(columnId);
+      if (targetCol) targetColName = targetCol.title;
+    }
+
+    // 3. Update task column and position
     task.columnId = columnId;
+    if (position !== undefined) task.position = position;
     await task.save();
 
-    // 💡 Detailed activity message with column context
-    const fromCol = sourceColumnName || 'column';
-    const toCol = targetColumnName || 'new column';
-    const details = `Moved "${task.title}" from ${fromCol} to ${toCol}`;
+    // 4. Log activity with real column names
+    const details = `Moved "${task.title}" from ${sourceColName} to ${targetColName}`;
 
-    // Log the activity
     await logActivity({
       userId,
       actionType: 'TASK_MOVED',
       details,
+      workspaceId: board?.workspace,
       boardId: task.board,
       taskId: task._id,
     });
 
-    return res.status(200).json({ status: 'success', data: { task } });
+    return res.status(200).json({
+      success: true,
+      data: { task },
+    });
   } catch (error) {
-    return res.status(500).json({ message: error.message });
+    console.error('❌ Error in moveTask:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to move task',
+      error: error.message,
+    });
   }
 };
 
