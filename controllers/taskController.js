@@ -1,6 +1,25 @@
 const Task = require('../models/taskModel');
+const Activity = require('../models/activity'); // 💡 Activity Model imported
 const catchAsync = require('../utils/catchAsync');
 const AppError = require('../utils/appError');
+
+/**
+ * Helper to record activities without interrupting the main controller logic
+ */
+const logActivity = async (userId, actionType, details, extra = {}) => {
+  try {
+    if (!userId) return;
+    await Activity.create({
+      user: userId,
+      actionType,
+      details,
+      board: extra.boardId || null,
+      task: extra.taskId || null,
+    });
+  } catch (error) {
+    console.error('⚠️ Activity logging error:', error.message);
+  }
+};
 
 // Get all tasks for a board
 exports.getTasks = catchAsync(async (req, res, next) => {
@@ -10,7 +29,6 @@ exports.getTasks = catchAsync(async (req, res, next) => {
     return next(new AppError('Please provide a board ID', 400));
   }
 
-  // 💡 Fixed: Filter using boardId instead of board
   const tasks = await Task.find({ boardId }).sort('position');
 
   res.status(200).json({
@@ -20,7 +38,7 @@ exports.getTasks = catchAsync(async (req, res, next) => {
   });
 });
 
-// Create task with automatic position calculation
+// Create task with automatic position calculation & activity logging
 exports.createTask = catchAsync(async (req, res, next) => {
   const boardId = req.params.boardId || req.body.boardId || req.body.board;
 
@@ -30,20 +48,28 @@ exports.createTask = catchAsync(async (req, res, next) => {
 
   // Calculate highest position in target column
   const taskCount = await Task.countDocuments({
-    boardId, // 💡 Fixed
+    boardId,
     columnId: req.body.columnId,
   });
 
   const newTask = await Task.create({
     title: req.body.title,
     description: req.body.description,
-    boardId, // 💡 Fixed: mapped to boardId
+    boardId,
     columnId: req.body.columnId,
-    priority: req.body.priority || 'medium', // 💡 Fixed: saved priority from FE
+    priority: req.body.priority || 'medium',
     position: req.body.position ?? taskCount,
     assignedTo: req.body.assignedTo,
     dueDate: req.body.dueDate,
   });
+
+  // 🚀 AUTOMATIC LOG: Task Created
+  logActivity(
+    req.user?._id || req.user?.id,
+    'TASK_CREATED',
+    `Created task "${newTask.title}"`,
+    { boardId, taskId: newTask._id }
+  );
 
   res.status(201).json({
     status: 'success',
@@ -66,7 +92,7 @@ exports.getTaskById = catchAsync(async (req, res, next) => {
   });
 });
 
-// Update task details
+// Update task details & log updates
 exports.updateTask = catchAsync(async (req, res, next) => {
   const task = await Task.findByIdAndUpdate(req.params.taskId, req.body, {
     new: true,
@@ -75,13 +101,21 @@ exports.updateTask = catchAsync(async (req, res, next) => {
 
   if (!task) return next(new AppError('No task found with that ID', 404));
 
+  // 🚀 AUTOMATIC LOG: Task Updated
+  logActivity(
+    req.user?._id || req.user?.id,
+    'TASK_UPDATED',
+    `Updated task "${task.title}"`,
+    { boardId: task.boardId, taskId: task._id }
+  );
+
   res.status(200).json({
     status: 'success',
     data: { task },
   });
 });
 
-// Move task and shift positions of siblings in target column
+// Move task, shift sibling positions, & log card movement
 exports.moveTask = catchAsync(async (req, res, next) => {
   const { columnId, position } = req.body;
   const { taskId } = req.params;
@@ -91,11 +125,12 @@ exports.moveTask = catchAsync(async (req, res, next) => {
 
   const targetColumn = columnId || currentTask.columnId;
   const targetPosition = position ?? currentTask.position;
+  const isColumnChange = currentTask.columnId.toString() !== targetColumn.toString();
 
   // Shift existing tasks at or after target position in target column
   await Task.updateMany(
     {
-      boardId: currentTask.boardId, // 💡 Fixed
+      boardId: currentTask.boardId,
       columnId: targetColumn,
       position: { $gte: targetPosition },
       _id: { $ne: taskId },
@@ -107,13 +142,25 @@ exports.moveTask = catchAsync(async (req, res, next) => {
   currentTask.position = targetPosition;
   await currentTask.save();
 
+  // 🚀 AUTOMATIC LOG: Task Moved
+  const logDetails = isColumnChange
+    ? `Moved "${currentTask.title}" to new column`
+    : `Reordered "${currentTask.title}"`;
+
+  logActivity(
+    req.user?._id || req.user?.id,
+    'TASK_MOVED',
+    logDetails,
+    { boardId: currentTask.boardId, taskId: currentTask._id }
+  );
+
   res.status(200).json({
     status: 'success',
     data: { task: currentTask },
   });
 });
 
-// Delete task and adjust surrounding indices
+// Delete task, adjust surrounding indices, & log deletion
 exports.deleteTask = catchAsync(async (req, res, next) => {
   const task = await Task.findByIdAndDelete(req.params.taskId);
   if (!task) return next(new AppError('No task found with that ID', 404));
@@ -121,11 +168,19 @@ exports.deleteTask = catchAsync(async (req, res, next) => {
   // Shift remaining tasks down by 1 in column
   await Task.updateMany(
     {
-      boardId: task.boardId, // 💡 Fixed
+      boardId: task.boardId,
       columnId: task.columnId,
       position: { $gt: task.position },
     },
     { $inc: { position: -1 } }
+  );
+
+  // 🚀 AUTOMATIC LOG: Task Deleted
+  logActivity(
+    req.user?._id || req.user?.id,
+    'TASK_DELETED',
+    `Deleted task "${task.title}"`,
+    { boardId: task.boardId }
   );
 
   res.status(204).json({
