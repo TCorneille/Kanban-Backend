@@ -1,74 +1,32 @@
-const Activity = require('../models/activity');
+const Activity = require('../models/activityModel'); // Verify model name
 
-
-const getMyActivities = async (req, res) => {
+exports.getMyActivities = async (req, res) => {
   try {
-    // Safely check for user ID from auth middleware
     const userId = req.user?.id || req.user?._id;
 
     if (!userId) {
       return res.status(401).json({
         success: false,
-        message: 'Unauthorized: User ID missing from context',
+        message: 'Unauthorized: User ID missing from request',
       });
     }
 
     const limit = Math.max(1, parseInt(req.query.limit, 10) || 10);
 
-    // Fetch user activities and populate references
+    // Mongoose query with safe populate options
     const activities = await Activity.find({ user: userId })
-      .populate('workspace', 'name slug')
-      .populate('board', 'name')
-      .populate('task', 'title')
+      .populate({ path: 'user', select: 'name email avatar', strictPopulate: false })
+      .populate({ path: 'workspace', select: 'name slug', strictPopulate: false })
+      .populate({ path: 'board', select: 'name title', strictPopulate: false })
+      .populate({ path: 'task', select: 'title', strictPopulate: false })
       .sort({ createdAt: -1 })
       .limit(limit)
       .lean();
 
-    // Ensure _id maps to id for frontend React keys
+    // Map safely with optional chaining (?.) so null populated refs never throw a 500 error
     const formattedData = activities.map((item) => ({
       ...item,
-      id: item._id.toString(),
-    }));
-
-    return res.status(200).json({
-      success: true,
-      count: formattedData.length,
-      data: formattedData,
-    });const Activity = require('../models/activity');
-
-/**
- * @desc    Get recent activities for the logged-in user
- * @route   GET /api/activities/me
- * @access  Private
- */
-const getMyActivities = async (req, res) => {
-  try {
-    // Safely check for user ID from auth middleware
-    const userId = req.user?.id || req.user?._id;
-
-    if (!userId) {
-      return res.status(401).json({
-        success: false,
-        message: 'Unauthorized: User ID missing from context',
-      });
-    }
-
-    const limit = Math.max(1, parseInt(req.query.limit, 10) || 10);
-
-    // Fetch user activities and populate references
-    const activities = await Activity.find({ user: userId })
-      .populate('user', 'name email avatar') // 👈 FIX: Populates user name, email, avatar
-      .populate('workspace', 'name slug')
-      .populate('board', 'name title')       // Populates both name & title depending on board schema
-      .populate('task', 'title')
-      .sort({ createdAt: -1 })
-      .limit(limit)
-      .lean();
-
-    // Ensure _id maps to id for frontend React keys
-    const formattedData = activities.map((item) => ({
-      ...item,
-      id: item._id.toString(),
+      id: item._id ? item._id.toString() : String(Math.random()),
     }));
 
     return res.status(200).json({
@@ -77,26 +35,11 @@ const getMyActivities = async (req, res) => {
       data: formattedData,
     });
   } catch (error) {
+    console.error('💥 Error in getMyActivities:', error); // Prints exact error in Render logs
     return res.status(500).json({
       success: false,
       message: 'Failed to retrieve user activities',
       error: error.message,
     });
   }
-};
-
-module.exports = {
-  getMyActivities,
-};
-  } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: 'Failed to retrieve user activities',
-      error: error.message,
-    });
-  }
-};
-
-module.exports = {
-  getMyActivities,
 };
