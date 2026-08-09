@@ -1,13 +1,13 @@
 const Activity = require('../models/activity');
 
 /**
- * Universally handles both object-style and positional-style activity logging
+ * Universal helper supporting both single-object and positional arguments.
  */
 const logActivity = async (firstArg, secondArg, thirdArg, fourthArg = {}) => {
   try {
     let userId, actionType, details, workspaceId, boardId, taskId;
 
-    // 1. Detect if called with an object: logActivity({ userId, actionType, ... })
+    // Detect single-object call: logActivity({ userId, actionType, details, ... })
     if (
       typeof firstArg === 'object' &&
       firstArg !== null &&
@@ -16,22 +16,18 @@ const logActivity = async (firstArg, secondArg, thirdArg, fourthArg = {}) => {
     ) {
       ({ userId, actionType, details, workspaceId, boardId, taskId } = firstArg);
     } else {
-      // 2. Handle positional call: logActivity(userId, actionType, details, { boardId, taskId })
+      // Positional call: logActivity(userId, actionType, details, extra)
       userId = firstArg;
       actionType = secondArg;
       details = thirdArg;
       workspaceId = fourthArg.workspaceId;
-      boardId = fourthArg.boardId;
-      taskId = fourthArg.taskId;
+      boardId = fourthArg.boardId || fourthArg.board;
+      taskId = fourthArg.taskId || fourthArg.task;
     }
 
-    // Validation guard
-    if (!userId || !actionType || !details) {
-      console.warn('⚠️ [logActivity] Missing required fields:', { userId: !!userId, actionType: !!actionType, details: !!details });
-      return;
-    }
+    if (!userId) return;
 
-    const activity = await Activity.create({
+    await Activity.create({
       user: userId,
       actionType,
       details,
@@ -39,10 +35,8 @@ const logActivity = async (firstArg, secondArg, thirdArg, fourthArg = {}) => {
       board: boardId || null,
       task: taskId || null,
     });
-
-    console.log('✅ [logActivity] Saved:', activity.actionType, '-', activity.details);
   } catch (error) {
-    console.error('❌ [logActivity] Failed to save to MongoDB:', error.message);
+    console.error('⚠️ Activity logging error:', error.message);
   }
 };
 

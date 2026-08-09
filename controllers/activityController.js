@@ -1,5 +1,10 @@
 const Activity = require('../models/activity');
 
+/**
+ * @desc    Get recent activities for the logged-in user
+ * @route   GET /api/v1/activities/me
+ * @access  Private
+ */
 exports.getMyActivities = async (req, res) => {
   try {
     const userId = req.user?.id || req.user?._id;
@@ -7,13 +12,12 @@ exports.getMyActivities = async (req, res) => {
     if (!userId) {
       return res.status(401).json({
         success: false,
-        message: 'Unauthorized: User ID missing from request',
+        message: 'Unauthorized: User ID missing from context',
       });
     }
 
     const limit = Math.max(1, parseInt(req.query.limit, 10) || 10);
 
-    // Mongoose query with safe populate options
     const activities = await Activity.find({ user: userId })
       .populate({ path: 'user', select: 'name email avatar', strictPopulate: false })
       .populate({ path: 'workspace', select: 'name slug', strictPopulate: false })
@@ -23,7 +27,6 @@ exports.getMyActivities = async (req, res) => {
       .limit(limit)
       .lean();
 
-    // Map safely with optional chaining (?.) so null populated refs never throw a 500 error
     const formattedData = activities.map((item) => ({
       ...item,
       id: item._id ? item._id.toString() : String(Math.random()),
@@ -35,7 +38,7 @@ exports.getMyActivities = async (req, res) => {
       data: formattedData,
     });
   } catch (error) {
-    console.error('💥 Error in getMyActivities:', error); // Prints exact error in Render logs
+    console.error('💥 Error in getMyActivities:', error);
     return res.status(500).json({
       success: false,
       message: 'Failed to retrieve user activities',

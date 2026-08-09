@@ -9,18 +9,18 @@ const activitySchema = new mongoose.Schema(
       required: [true, 'An activity must belong to a user'],
       index: true,
     },
-    // The workspace where this action took place (Optional)
+    // Optional workspace reference
     workspace: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Workspace',
       index: true,
     },
-    // Optional reference to a specific board
+    // Optional board reference
     board: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Board',
     },
-    // Optional reference to a specific task/card
+    // Optional task reference
     task: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Task',
@@ -49,13 +49,10 @@ const activitySchema = new mongoose.Schema(
     },
   },
   {
-    timestamps: { createdAt: true, updatedAt: false },
+    timestamps: true,
   }
 );
 
-/* =====================================================
-   ⚡ COMPOUND INDEXES FOR TIMELINE QUERIES
-===================================================== */
 activitySchema.index({ workspace: 1, createdAt: -1 });
 activitySchema.index({ user: 1, createdAt: -1 });
 
