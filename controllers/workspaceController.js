@@ -6,6 +6,68 @@ const AppError = require('../utils/appError');
 const Board = require('../models/boardModel');
 const Task = require('../models/taskModel');
 
+// ==========================================
+// ACCESS CONTROL MIDDLEWARES
+// ==========================================
+
+// Middleware: Restrict access to members or owners of the workspace
+exports.restrictToWorkspaceMembers = catchAsync(async (req, res, next) => {
+  const workspaceId = req.params.workspaceId;
+  const userId = (req.user._id || req.user.id).toString();
+
+  const workspace = await Workspace.findById(workspaceId);
+
+  if (!workspace) {
+    return next(new AppError('No workspace found with that ID', 404));
+  }
+
+  // Check if user is the owner
+  const isOwner = workspace.owner.toString() === userId;
+
+  // Check if user is in members array
+  const isMember = workspace.members.some((member) => {
+    const memberId = member.user?._id ? member.user._id.toString() : member.user.toString();
+    return memberId === userId;
+  });
+
+  if (!isOwner && !isMember) {
+    return next(new AppError('You do not have access to this workspace', 403));
+  }
+
+  // Attach workspace object to request to avoid re-querying in route handlers
+  req.workspace = workspace;
+  next();
+});
+
+// Middleware: Restrict specific actions based on member roles (e.g., 'owner', 'admin')
+exports.restrictToRoles = (...allowedRoles) => {
+  return (req, res, next) => {
+    const userId = (req.user._id || req.user.id).toString();
+    const isOwner = req.workspace.owner.toString() === userId;
+
+    let userRole = 'member';
+    if (isOwner) {
+      userRole = 'owner';
+    } else {
+      const memberRecord = req.workspace.members.find((m) => {
+        const memberId = m.user?._id ? m.user._id.toString() : m.user.toString();
+        return memberId === userId;
+      });
+      userRole = memberRecord?.role || 'member';
+    }
+
+    if (!allowedRoles.includes(userRole)) {
+      return next(new AppError('You do not have permission to perform this action', 403));
+    }
+
+    next();
+  };
+};
+
+// ==========================================
+// CONTROLLER HANDLERS
+// ==========================================
+
 // Get all workspaces user belongs to or owns
 exports.getUserWorkspaces = catchAsync(async (req, res, next) => {
   const userId = req.user._id || req.user.id;
@@ -113,11 +175,11 @@ exports.addMember = catchAsync(async (req, res, next) => {
     return next(new AppError('Please provide either a userId or email', 400));
   }
 
-  // 2. Fetch workspace
-  const workspace = await Workspace.findById(req.params.workspaceId);
+  // 2. Fetch workspace (or use req.workspace attached by middleware)
+  const workspace = req.workspace || (await Workspace.findById(req.params.workspaceId));
   if (!workspace) return next(new AppError('Workspace not found', 404));
 
-  // 3. Safe membership check (handles ObjectIds and string formats smoothly)
+  // 3. Safe membership check
   const isAlreadyMember = workspace.members.some((member) => {
     const memberId = member.user?._id ? member.user._id.toString() : member.user.toString();
     return memberId === targetUserId.toString();
@@ -170,6 +232,8 @@ exports.removeMember = catchAsync(async (req, res, next) => {
 
   res.status(200).json({ status: 'success', data: { workspace } });
 });
+
+// Dashboard Statistics
 exports.getDashboardStats = catchAsync(async (req, res, next) => {
   const userId = req.user._id || req.user.id;
 
@@ -180,7 +244,7 @@ exports.getDashboardStats = catchAsync(async (req, res, next) => {
 
   const workspaceIds = userWorkspaces.map((w) => w._id);
 
-  // 2. Find all boards across those workspaces (checking both possible field names)
+  // 2. Find all boards across those workspaces
   const userBoards = await Board.find({
     $or: [
       { workspaceId: { $in: workspaceIds } },
@@ -190,7 +254,6 @@ exports.getDashboardStats = catchAsync(async (req, res, next) => {
 
   const boardIds = userBoards.map((b) => b._id);
 
-  // If user has no boards yet, return early with zeros for task metrics
   if (boardIds.length === 0) {
     return res.status(200).json({
       status: 'success',

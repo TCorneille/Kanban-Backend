@@ -1,51 +1,54 @@
 const express = require('express');
 const workspaceController = require('../controllers/workspaceController');
-const boardRouter = require('./boardRoutes');
-const { protect, restrictTo } = require('../controllers/authController');
+const authController = require('../controllers/authController');
 
 const router = express.Router();
 
-// Protect all routes with JWT authentication
-router.use(protect);
+// 1. All routes below require user authentication
+router.use(authController.protect);
 
-/* =====================================================
-    📊 DASHBOARD STATS ROUTE
-    MUST be defined BEFORE parameterized routes (/:workspaceId)
-===================================================== */
-router.get('/stats', workspaceController.getDashboardStats);
+// 2. User-level workspace routes
+router.get('/dashboard-stats', workspaceController.getDashboardStats);
+router.get('/', workspaceController.getUserWorkspaces);
+router.post('/', workspaceController.createWorkspace);
 
-/* =====================================================
-    🔀 NESTED ROUTES MOUNTING
-    Redirects /api/workspaces/:workspaceId/boards to boardRouter
-===================================================== */
-router.use('/:workspaceId/boards', boardRouter);
+// 3. Protect all routes with workspaceId param - checks if user is owner or member
+router.use('/:workspaceId', workspaceController.restrictToWorkspaceMembers);
 
-/* =====================================================
-    🏢 WORKSPACE CRUD ROUTES (/api/workspaces)
-===================================================== */
+// Members and Owners can read workspace details
+router.get('/:workspaceId', workspaceController.getWorkspaceById);
 
-router
-  .route('/')
-  .get(workspaceController.getUserWorkspaces) // Fetch all workspaces for the logged-in user
-  .post(workspaceController.createWorkspace);
+// Only Owners and Admin roles can update workspace details
+router.patch(
+  '/:workspaceId',
+  workspaceController.restrictToRoles('owner', 'admin'),
+  workspaceController.updateWorkspace
+);
 
-router
-  .route('/:workspaceId')
-  .get(workspaceController.getWorkspaceById)
-  .patch(restrictTo('admin'), workspaceController.updateWorkspace)
-  .delete(restrictTo('admin'), workspaceController.deleteWorkspace);
+// Only Workspace Owner can delete the workspace
+router.delete(
+  '/:workspaceId',
+  workspaceController.restrictToRoles('owner'),
+  workspaceController.deleteWorkspace
+);
 
-/* =====================================================
-    👥 MEMBER MANAGEMENT ROUTES
-===================================================== */
+// 4. Member Management Routes (Owners & Admins only)
+router.post(
+  '/:workspaceId/members',
+  workspaceController.restrictToRoles('owner', 'admin'),
+  workspaceController.addMember
+);
 
-router
-  .route('/:workspaceId/members')
-  .post(restrictTo('admin'), workspaceController.addMember);
+router.patch(
+  '/:workspaceId/members/:userId',
+  workspaceController.restrictToRoles('owner', 'admin'),
+  workspaceController.updateMemberRole
+);
 
-router
-  .route('/:workspaceId/members/:userId')
-  .patch(restrictTo('admin'), workspaceController.updateMemberRole)
-  .delete(restrictTo('admin'), workspaceController.removeMember);
+router.delete(
+  '/:workspaceId/members/:userId',
+  workspaceController.restrictToRoles('owner', 'admin'),
+  workspaceController.removeMember
+);
 
 module.exports = router;
